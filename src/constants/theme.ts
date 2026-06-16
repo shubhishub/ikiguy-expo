@@ -1,12 +1,12 @@
 /**
- * iKiguy AI design tokens — ported from the web app's Tailwind theme.
+ * iKiguy AI design tokens - ported from the web app's Tailwind theme.
  * A single calm, light palette (the prototype is light-only).
  */
 
 import { Platform } from 'react-native';
 
 export const Colors = {
-  /** App canvas — soft lavender-grey behind cards. */
+  /** App canvas - soft lavender-grey behind cards. */
   bg: '#F4F5FA',
   /** Card / surface. */
   card: '#FFFFFF',
@@ -15,14 +15,14 @@ export const Colors = {
   /** Muted secondary text. */
   inkSoft: '#8A90A2',
 
-  /** Brand purple — active tabs, FAB, primary buttons (matches FAB shadow rgb). */
+  /** Brand purple - active tabs, FAB, primary buttons (matches FAB shadow rgb). */
   primary: '#6B72E8',
   /** Pressed / darker purple. */
   primaryPressed: '#565CD6',
   /** Faint purple wash for tinted buttons / pressed states. */
   primaryTint: '#ECEDFC',
 
-  /** Secondary blue — tags, lab-report button, source chips. */
+  /** Secondary blue - tags, lab-report button, source chips. */
   secondary: '#5273B8',
   /** Light blue wash. */
   secondaryTint: '#E8EEFB',

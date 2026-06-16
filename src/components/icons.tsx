@@ -145,6 +145,13 @@ export const XIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const EditIcon = (p: IconProps) => (
+  <Svg {...useBase(p)}>
+    <Path d="M4 20h4L18.5 9.5l-4-4L4 16z" />
+    <Path d="M13.5 6.5l4 4" />
+  </Svg>
+);
+
 export const ReportsIcon = (p: IconProps) => (
   <Svg {...useBase(p)}>
     <Rect x="5" y="5" width="14" height="16" rx="2.5" />
