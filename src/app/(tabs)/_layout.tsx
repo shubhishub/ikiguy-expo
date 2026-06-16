@@ -12,7 +12,6 @@ export default function TabsLayout() {
         screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: '#F4F5FA' } }}
         tabBar={(props) => <BottomNav {...props} />}>
         <Tabs.Screen name="index" options={{ title: 'Visits' }} />
-        <Tabs.Screen name="labs" options={{ title: 'Labs' }} />
         <Tabs.Screen name="reports" options={{ title: 'Reports' }} />
         <Tabs.Screen name="reminders" options={{ title: 'Reminders' }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
@@ -20,7 +19,7 @@ export default function TabsLayout() {
 
       {/* Floating mic button, sits above the tab bar like the web prototype. */}
       <View style={{ position: 'absolute', right: 18, bottom: 96 }} pointerEvents="box-none">
-        <MicFab onPress={() => router.push('/transcribe')} />
+        <MicFab onPress={() => router.push('/visit-setup')} />
       </View>
     </View>
   );

@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
-import { BellIcon, ChartIcon, HomeIcon, IconProps, ReportsIcon, UserIcon } from './icons';
+import { BellIcon, HomeIcon, IconProps, ReportsIcon, UserIcon } from './icons';
 
 // Minimal shape of the props expo-router passes to a custom `tabBar`.
 // We only read `state` and `navigation`, so we type just those.
@@ -19,7 +19,6 @@ type TabMeta = { label: string; Icon: (p: IconProps) => React.JSX.Element };
 // Maps route names (file names under (tabs)) to label + icon, matching the web BottomNav.
 const TABS: Record<string, TabMeta> = {
   index: { label: 'Visits', Icon: HomeIcon },
-  labs: { label: 'Labs', Icon: ChartIcon },
   reports: { label: 'Reports', Icon: ReportsIcon },
   reminders: { label: 'Reminders', Icon: BellIcon },
   profile: { label: 'Profile', Icon: UserIcon },

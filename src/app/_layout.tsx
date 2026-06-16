@@ -49,6 +49,8 @@ function RootNavigator() {
       <Stack.Screen name="note" />
       <Stack.Screen name="diet" />
       <Stack.Screen name="family" />
+      <Stack.Screen name="visit-setup" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="session-edit" options={{ presentation: 'modal' }} />
       <Stack.Screen name="transcribe" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
     </Stack>
   );
