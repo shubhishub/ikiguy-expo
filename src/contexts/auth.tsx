@@ -2,12 +2,11 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
-import { login as apiLogin } from '@/lib/api';
+import { login as apiLogin, type UserProfile, type UserRecord } from '@/lib/api';
 
-const USER_KEY = 'ikiguy.userId';
-const EMAIL_KEY = 'ikiguy.email';
+const USER_KEY = 'ikiguy.user';
 
-// SecureStore is unavailable on web — fall back to localStorage there.
+// SecureStore is unavailable on web - fall back to localStorage there.
 const storage = {
   async get(key: string) {
     if (Platform.OS === 'web') return globalThis.localStorage?.getItem(key) ?? null;
@@ -24,48 +23,78 @@ const storage = {
 };
 
 type AuthValue = {
+  user: UserRecord | null;
   userId: string | null;
   email: string | null;
+  /** First name if known, else the email handle. */
+  firstName: string;
+  /** "First Last" if known, else the email handle. */
+  fullName: string;
+  /** Up-to-two-letter avatar initials. */
+  initials: string;
   ready: boolean;
-  signIn: (email: string) => Promise<void>;
+  signIn: (email: string, profile?: UserProfile) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [userId, setUserId] = useState<string | null>(null);
-  const [email, setEmail] = useState<string | null>(null);
+  const [user, setUser] = useState<UserRecord | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [id, mail] = await Promise.all([storage.get(USER_KEY), storage.get(EMAIL_KEY)]);
-      setUserId(id);
-      setEmail(mail);
+      const raw = await storage.get(USER_KEY);
+      if (raw) {
+        try {
+          setUser(JSON.parse(raw) as UserRecord);
+        } catch {
+          setUser(null);
+        }
+      }
       setReady(true);
     })();
   }, []);
 
-  const value = useMemo<AuthValue>(
-    () => ({
-      userId,
-      email,
+  const value = useMemo<AuthValue>(() => {
+    const emailHandle = user?.email?.split('@')[0] ?? '';
+    const first = user?.firstName?.trim() || '';
+    const last = user?.lastName?.trim() || '';
+    const fullName = [first, last].filter(Boolean).join(' ') || emailHandle;
+    const initials =
+      (first || last
+        ? `${first[0] ?? ''}${last[0] ?? ''}`
+        : emailHandle.slice(0, 2)
+      ).toUpperCase() || 'IK';
+
+    return {
+      user,
+      userId: user?.userId ?? null,
+      email: user?.email ?? null,
+      firstName: first || emailHandle,
+      fullName,
+      initials,
       ready,
-      async signIn(nextEmail: string) {
-        const { userId: id, email: mail } = await apiLogin(nextEmail);
-        await Promise.all([storage.set(USER_KEY, id), storage.set(EMAIL_KEY, mail)]);
-        setUserId(id);
-        setEmail(mail);
+      async signIn(email: string, profile?: UserProfile) {
+        const record = await apiLogin(email, profile);
+        const next: UserRecord = {
+          userId: record.userId,
+          email: record.email,
+          firstName: record.firstName,
+          lastName: record.lastName,
+          phone: record.phone,
+          age: record.age,
+        };
+        await storage.set(USER_KEY, JSON.stringify(next));
+        setUser(next);
       },
       async signOut() {
-        await Promise.all([storage.del(USER_KEY), storage.del(EMAIL_KEY)]);
-        setUserId(null);
-        setEmail(null);
+        await storage.del(USER_KEY);
+        setUser(null);
       },
-    }),
-    [userId, email, ready],
-  );
+    };
+  }, [user, ready]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -1,4 +1,4 @@
-// Dummy data for the iKiguy AI prototype. No backend — everything is static
+// Dummy data for the iKiguy AI prototype. No backend - everything is static
 // here so every screen renders and is clickable. Ported from the web app.
 
 export type VisitStatus = 'good' | 'caution' | 'flag';
@@ -76,6 +76,22 @@ export const statusLabel: Record<VisitStatus, string> = {
   caution: 'Watch',
   flag: 'Needs attention',
 };
+
+// Visit types offered when setting up a recording.
+export const specialties = [
+  'General Medicine',
+  'Cardiology',
+  'Endocrinology',
+  'Orthopedics',
+  'Dermatology',
+  'ENT',
+  'Pediatrics',
+  'Gynecology',
+  'Neurology',
+  'Ophthalmology',
+  'Dentistry',
+  'Psychiatry',
+];
 
 export const profile = {
   name: 'Shubhi Jha',

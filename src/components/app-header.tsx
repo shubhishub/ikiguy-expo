@@ -4,11 +4,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Logo } from '@/components/logo';
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth';
 
 // Top app bar shared by the main tabs: brand lockup + user avatar.
-export function AppHeader({ initials = 'SJ' }: { initials?: string }) {
+export function AppHeader({ initials: override }: { initials?: string }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { initials: authInitials } = useAuth();
+  const initials = override ?? authInitials;
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
       <Logo />
