@@ -8,9 +8,11 @@
     "scheme": "ikiguyexpo",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.ikiguy.app"
     },
     "android": {
+      "package": "com.ikiguy.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -41,7 +43,13 @@
           "microphonePermission": "iKiguy AI uses the microphone to record and transcribe your doctor visits."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "iKiguy AI accesses your photos so you can upload lab reports."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
