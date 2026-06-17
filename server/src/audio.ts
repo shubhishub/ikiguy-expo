@@ -27,7 +27,10 @@ export async function toMp3(
   input: Buffer,
   inputExt = 'm4a',
 ): Promise<{ data: Buffer; mimeType: string }> {
-  if (!(await hasFfmpeg())) return { data: input, mimeType: 'audio/mp4' };
+  if (!(await hasFfmpeg())) {
+    console.warn('[audio] ffmpeg not found — sending original audio to Gemini as audio/mp4');
+    return { data: input, mimeType: 'audio/mp4' };
+  }
 
   // mp4/m4a needs a seekable input (moov atom), so write a temp file rather
   // than piping stdin.
@@ -41,9 +44,14 @@ export async function toMp3(
     );
     const out = Buffer.from(await new Response(proc.stdout).arrayBuffer());
     await proc.exited;
-    if (proc.exitCode !== 0 || out.length === 0) return { data: input, mimeType: 'audio/mp4' };
+    if (proc.exitCode !== 0 || out.length === 0) {
+      console.warn(`[audio] ffmpeg failed (exit ${proc.exitCode}), using original ${input.length}B`);
+      return { data: input, mimeType: 'audio/mp4' };
+    }
+    console.log(`[audio] transcoded ${input.length}B ${inputExt} -> ${out.length}B mp3`);
     return { data: out, mimeType: 'audio/mp3' };
-  } catch {
+  } catch (err) {
+    console.error('[audio] transcode error:', err instanceof Error ? err.message : err);
     return { data: input, mimeType: 'audio/mp4' };
   } finally {
     unlink(inPath).catch(() => {});

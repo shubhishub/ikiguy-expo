@@ -34,6 +34,26 @@ export const save = mutation({
   },
 });
 
+// Patch the displayed header fields on a note (used by the edit screen).
+export const updateDetails = mutation({
+  args: {
+    sessionId: v.id('sessions'),
+    doctor: v.optional(v.string()),
+    specialty: v.optional(v.string()),
+    facility: v.optional(v.string()),
+  },
+  handler: async (ctx, { sessionId, ...fields }) => {
+    const note = await ctx.db
+      .query('notes')
+      .withIndex('by_session', (q) => q.eq('sessionId', sessionId))
+      .unique();
+    if (!note) return;
+    const patch: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(fields)) if (val !== undefined) patch[k] = val;
+    if (Object.keys(patch).length) await ctx.db.patch(note._id, patch);
+  },
+});
+
 export const getBySession = query({
   args: { sessionId: v.id('sessions') },
   handler: async (ctx, { sessionId }) =>

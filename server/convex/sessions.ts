@@ -2,28 +2,64 @@ import { v } from 'convex/values';
 
 import { mutation, query } from './_generated/server';
 
-// Start a new recording session for a user.
+// Start a new recording session, capturing the visit context chosen up front.
 export const create = mutation({
-  args: { userId: v.id('users') },
-  handler: async (ctx, { userId }) =>
+  args: {
+    userId: v.id('users'),
+    doctor: v.optional(v.string()),
+    specialty: v.optional(v.string()),
+    facility: v.optional(v.string()),
+    placeId: v.optional(v.string()),
+    address: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+  },
+  handler: async (ctx, args) =>
     ctx.db.insert('sessions', {
-      userId,
+      userId: args.userId,
       status: 'recording',
       startedAt: Date.now(),
       transcript: '',
+      doctor: args.doctor,
+      specialty: args.specialty,
+      facility: args.facility,
+      placeId: args.placeId,
+      address: args.address,
+      lat: args.lat,
+      lng: args.lng,
     }),
 });
 
-// Append a transcribed chunk and grow the running transcript.
-export const appendChunk = mutation({
-  args: { sessionId: v.id('sessions'), index: v.number(), text: v.string() },
-  handler: async (ctx, { sessionId, index, text }) => {
-    await ctx.db.insert('chunks', { sessionId, index, text, createdAt: Date.now() });
-    const session = await ctx.db.get(sessionId);
-    if (!session) throw new Error('Session not found');
-    const transcript = [session.transcript, text].filter(Boolean).join(' ').trim();
+export const setTranscript = mutation({
+  args: { sessionId: v.id('sessions'), transcript: v.string() },
+  handler: async (ctx, { sessionId, transcript }) => {
     await ctx.db.patch(sessionId, { transcript });
-    return { transcript };
+  },
+});
+
+export const setAudio = mutation({
+  args: { sessionId: v.id('sessions'), audioId: v.id('_storage') },
+  handler: async (ctx, { sessionId, audioId }) => {
+    await ctx.db.patch(sessionId, { audioId });
+  },
+});
+
+// Update the visit context after recording (add doctor/location/type later).
+export const updateContext = mutation({
+  args: {
+    sessionId: v.id('sessions'),
+    doctor: v.optional(v.string()),
+    specialty: v.optional(v.string()),
+    facility: v.optional(v.string()),
+    placeId: v.optional(v.string()),
+    address: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+  },
+  handler: async (ctx, { sessionId, ...fields }) => {
+    const patch: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(fields)) if (val !== undefined) patch[k] = val;
+    if (Object.keys(patch).length) await ctx.db.patch(sessionId, patch);
   },
 });
 
@@ -44,6 +80,16 @@ export const setStatus = mutation({
 export const get = query({
   args: { sessionId: v.id('sessions') },
   handler: async (ctx, { sessionId }) => ctx.db.get(sessionId),
+});
+
+// Resolve a playable URL for a session's stored audio.
+export const getAudioUrl = query({
+  args: { sessionId: v.id('sessions') },
+  handler: async (ctx, { sessionId }) => {
+    const session = await ctx.db.get(sessionId);
+    if (!session?.audioId) return null;
+    return ctx.storage.getUrl(session.audioId);
+  },
 });
 
 export const listByUser = query({
