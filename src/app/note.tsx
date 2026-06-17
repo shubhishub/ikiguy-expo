@@ -1,8 +1,9 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { CheckIcon, PillIcon, SaveIcon, ShareIcon } from '@/components/icons';
+import { AudioPlayer } from '@/components/audio-player';
+import { CheckIcon, EditIcon, PillIcon, SaveIcon, ShareIcon } from '@/components/icons';
 import { ScreenHeader } from '@/components/screen-header';
 import { StatusChip } from '@/components/status-chip';
 import { Colors, Radius, Shadow } from '@/constants/theme';
@@ -28,7 +29,9 @@ const demoNote: NoteData = {
 
 export default function NoteScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
+  const router = useRouter();
   const [note, setNote] = useState<NoteData | null>(sessionId ? null : demoNote);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(!!sessionId);
 
   useEffect(() => {
@@ -36,8 +39,11 @@ export default function NoteScreen() {
     let active = true;
     (async () => {
       try {
-        const { note: fetched } = await getNote(sessionId);
-        if (active) setNote(fetched ?? demoNote);
+        const { note: fetched, audioUrl: url } = await getNote(sessionId);
+        if (active) {
+          setNote(fetched ?? demoNote);
+          setAudioUrl(url);
+        }
       } catch {
         if (active) setNote(demoNote);
       } finally {
@@ -56,6 +62,13 @@ export default function NoteScreen() {
         back="/"
         right={
           <View style={styles.headerActions}>
+            {sessionId && (
+              <Pressable
+                onPress={() => router.push({ pathname: '/session-edit', params: { sessionId } })}
+                style={styles.iconBtn}>
+                <EditIcon size={19} color={Colors.ink} />
+              </Pressable>
+            )}
             <View style={styles.iconBtn}>
               <ShareIcon size={19} color={Colors.ink} />
             </View>
@@ -73,6 +86,11 @@ export default function NoteScreen() {
         </View>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
+          {audioUrl && (
+            <View style={{ marginBottom: 16 }}>
+              <AudioPlayer uri={audioUrl} />
+            </View>
+          )}
           <View style={[styles.card, Shadow]}>
             <View style={styles.visitTop}>
               <View style={{ flex: 1 }}>

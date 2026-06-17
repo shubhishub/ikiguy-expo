@@ -1,22 +1,16 @@
-import {
-  AudioModule,
-  RecordingPresets,
-  setAudioModeAsync,
-  useAudioRecorder,
-} from 'expo-audio';
-import { useRouter } from 'expo-router';
+import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StopIcon } from '@/components/icons';
 import { Logo } from '@/components/logo';
 import { Colors, Radius } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth';
-import { createSession, finalizeSession, uploadChunk } from '@/lib/api';
+import { createSession, finalizeSession } from '@/lib/api';
 
-const CHUNK_MS = 5000;
-const AUDIO_MIME = 'audio/mp4'; // expo-audio HIGH_QUALITY records .m4a
+const AUDIO_MIME = 'audio/mp4'; // expo-audio HIGH_QUALITY records .m4a; server transcodes to mp3
 
 const bars = [
   0.4, 0.7, 1, 0.55, 0.85, 0.35, 0.95, 0.6, 0.45, 0.8, 0.5, 0.9, 0.4, 0.7, 1, 0.55, 0.85, 0.35,
@@ -35,25 +29,22 @@ export default function TranscribeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { userId } = useAuth();
+  const params = useLocalSearchParams<{ sessionId?: string }>();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
   const [phase, setPhase] = useState<Phase>('preparing');
   const [seconds, setSeconds] = useState(0);
-  const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
-
   const sessionRef = useRef<string | null>(null);
-  const stopRef = useRef(false);
-  const chunkRef = useRef(0);
 
-  // Timer.
+  // Timer ticks while recording.
   useEffect(() => {
     if (phase !== 'recording') return;
     const id = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [phase]);
 
-  // Set up permissions, session, and the chunked record loop.
+  // Permissions, session, start one continuous recording.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -62,12 +53,17 @@ export default function TranscribeScreen() {
         if (!perm.granted) throw new Error('Microphone permission is required to record.');
         await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
 
-        if (!userId) throw new Error('Please sign in before recording.');
-        const { sessionId } = await createSession(userId);
+        let sid = params.sessionId ?? null;
+        if (!sid) {
+          if (!userId) throw new Error('Please sign in before recording.');
+          sid = (await createSession({ userId })).sessionId;
+        }
         if (cancelled) return;
-        sessionRef.current = sessionId;
+        sessionRef.current = sid;
+
+        await recorder.prepareToRecordAsync();
+        recorder.record();
         setPhase('recording');
-        runRecordLoop(sessionId);
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Could not start recording.');
@@ -77,57 +73,23 @@ export default function TranscribeScreen() {
     })();
     return () => {
       cancelled = true;
-      stopRef.current = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Records sequential ~5s segments, uploading each as it completes.
-  async function runRecordLoop(sessionId: string) {
-    while (!stopRef.current) {
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      await waitChunk();
-      await recorder.stop();
-      const uri = recorder.uri;
-      const index = chunkRef.current++;
-      if (uri) {
-        uploadChunk(sessionId, index, uri, AUDIO_MIME)
-          .then((r) => setTranscript(r.transcript))
-          .catch(() => {});
-      }
-    }
-  }
-
-  // Resolves after CHUNK_MS, or early when the user stops.
-  function waitChunk() {
-    return new Promise<void>((resolve) => {
-      let elapsed = 0;
-      const id = setInterval(() => {
-        elapsed += 250;
-        if (elapsed >= CHUNK_MS || stopRef.current) {
-          clearInterval(id);
-          resolve();
-        }
-      }, 250);
-    });
-  }
-
   async function onStop() {
     if (phase !== 'recording') return;
-    stopRef.current = true;
     setPhase('processing');
-    const sessionId = sessionRef.current;
+    const sid = sessionRef.current;
     try {
-      if (sessionId) {
-        await finalizeSession(sessionId, seconds);
-        router.replace({ pathname: '/note', params: { sessionId } });
-      } else {
-        router.replace('/note');
-      }
-    } catch {
-      // Backend not ready — fall back to the demo note so the flow still works.
-      router.replace('/note');
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (!sid || !uri) throw new Error('Recording was not captured.');
+      await finalizeSession(sid, uri, AUDIO_MIME, seconds);
+      router.replace({ pathname: '/note', params: { sessionId: sid } });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not process the recording.');
+      setPhase('error');
     }
   }
 
@@ -136,7 +98,7 @@ export default function TranscribeScreen() {
       <View style={[styles.screen, styles.errorScreen, { paddingTop: insets.top + 24 }]}>
         <Logo />
         <View style={styles.errorBody}>
-          <Text style={styles.errorTitle}>Can&apos;t start recording</Text>
+          <Text style={styles.errorTitle}>Recording problem</Text>
           <Text style={styles.errorText}>{error}</Text>
         </View>
         <View style={{ gap: 10 }}>
@@ -163,7 +125,7 @@ export default function TranscribeScreen() {
 
       <View style={styles.center}>
         <Text style={styles.listening}>
-          {phase === 'processing' ? 'Generating your medical note…' : 'Listening to your visit'}
+          {phase === 'processing' ? 'Transcribing and writing your note…' : 'Listening to your visit'}
         </Text>
         <Text style={styles.timer}>{fmt(seconds)}</Text>
 
@@ -173,15 +135,10 @@ export default function TranscribeScreen() {
           ))}
         </View>
 
-        {transcript ? (
-          <ScrollView style={styles.transcriptBox} contentContainerStyle={{ padding: 14 }}>
-            <Text style={styles.transcriptText}>{transcript}</Text>
-          </ScrollView>
-        ) : (
-          <Text style={styles.helper}>
-            Keep your phone nearby. iKiguy AI is transcribing the conversation in real time.
-          </Text>
-        )}
+        <Text style={styles.helper}>
+          Keep your phone nearby. iKiguy AI records the full visit, then structures it into a medical
+          note you can replay.
+        </Text>
       </View>
 
       <View style={styles.bottom}>
@@ -248,17 +205,7 @@ const styles = StyleSheet.create({
   timer: { fontSize: 52, fontWeight: '800', color: Colors.ink, letterSpacing: -1, fontVariant: ['tabular-nums'] },
   wave: { height: 96, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, marginTop: 32 },
   bar: { width: 5, borderRadius: 3, backgroundColor: Colors.primary },
-  helper: { maxWidth: 260, textAlign: 'center', fontSize: 13, lineHeight: 19, color: Colors.inkSoft, marginTop: 32 },
-  transcriptBox: {
-    maxHeight: 160,
-    alignSelf: 'stretch',
-    marginTop: 28,
-    backgroundColor: Colors.card,
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.hairline,
-  },
-  transcriptText: { fontSize: 14, lineHeight: 22, color: Colors.ink },
+  helper: { maxWidth: 280, textAlign: 'center', fontSize: 13, lineHeight: 19, color: Colors.inkSoft, marginTop: 32 },
 
   bottom: { alignItems: 'center', gap: 12 },
   stopBtn: {
