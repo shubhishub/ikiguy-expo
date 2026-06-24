@@ -15,6 +15,11 @@ const noteFields = {
   risks: v.array(v.string()),
   advice: v.array(v.string()),
   prescription: v.array(v.object({ name: v.string(), dose: v.string() })),
+  summary: v.optional(v.string()),
+  patientSummary: v.optional(v.string()),
+  diagnoses: v.optional(v.array(v.string())),
+  testsOrdered: v.optional(v.array(v.string())),
+  followUp: v.optional(v.object({ date: v.string(), instructions: v.string() })),
 };
 
 // Persist the structured note generated from a session's transcript. One note

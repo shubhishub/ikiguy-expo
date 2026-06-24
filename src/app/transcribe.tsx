@@ -8,9 +8,16 @@ import { StopIcon } from '@/components/icons';
 import { Logo } from '@/components/logo';
 import { Colors, Radius } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth';
-import { createSession, finalizeSession } from '@/lib/api';
+import { createSession, finalizeSession, uploadChunk } from '@/lib/api';
+import { ChunkUploader } from '@/lib/chunk-uploader';
 
 const AUDIO_MIME = 'audio/mp4'; // expo-audio HIGH_QUALITY records .m4a; server transcodes to mp3
+
+// Length of each background-uploaded segment. We record continuously but rotate
+// the recorder on this interval, uploading each finished segment to the session
+// while the next one records. (μ-law was considered but expo-audio can't record
+// it and Gemini doesn't accept it, so we keep AAC and combine server-side.)
+const CHUNK_SECONDS = 30;
 
 const bars = [
   0.4, 0.7, 1, 0.55, 0.85, 0.35, 0.95, 0.6, 0.45, 0.8, 0.5, 0.9, 0.4, 0.7, 1, 0.55, 0.85, 0.35,
@@ -35,12 +42,51 @@ export default function TranscribeScreen() {
   const [phase, setPhase] = useState<Phase>('preparing');
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [uploaded, setUploaded] = useState(0);
+  const [chunkCount, setChunkCount] = useState(0);
   const sessionRef = useRef<string | null>(null);
+  const uploaderRef = useRef<ChunkUploader | null>(null);
+  const chunkIndexRef = useRef(0);
+  const rotatingRef = useRef(false);
+
+  // Stop the current segment, enqueue it for background upload, and (unless this
+  // is the final segment) immediately start the next one. Guarded so an
+  // interval tick can't overlap with the manual stop.
+  const rotateRef = useRef<(final: boolean) => Promise<void>>(async () => {});
+  rotateRef.current = async (final: boolean) => {
+    if (rotatingRef.current) return;
+    rotatingRef.current = true;
+    try {
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (uri) {
+        const index = chunkIndexRef.current++;
+        setChunkCount((c) => c + 1);
+        uploaderRef.current?.enqueue(index, uri);
+      }
+      if (!final) {
+        await recorder.prepareToRecordAsync();
+        recorder.record();
+      }
+    } finally {
+      rotatingRef.current = false;
+    }
+  };
 
   // Timer ticks while recording.
   useEffect(() => {
     if (phase !== 'recording') return;
     const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  // Rotate the recorder every CHUNK_SECONDS so finished segments upload in the
+  // background while recording continues.
+  useEffect(() => {
+    if (phase !== 'recording') return;
+    const id = setInterval(() => {
+      void rotateRef.current(false);
+    }, CHUNK_SECONDS * 1000);
     return () => clearInterval(id);
   }, [phase]);
 
@@ -60,6 +106,9 @@ export default function TranscribeScreen() {
         }
         if (cancelled) return;
         sessionRef.current = sid;
+        uploaderRef.current = new ChunkUploader(
+          (index, uri) => uploadChunk(sid!, index, uri, AUDIO_MIME).then(() => setUploaded((n) => n + 1)),
+        );
 
         await recorder.prepareToRecordAsync();
         recorder.record();
@@ -82,10 +131,18 @@ export default function TranscribeScreen() {
     setPhase('processing');
     const sid = sessionRef.current;
     try {
-      await recorder.stop();
-      const uri = recorder.uri;
-      if (!sid || !uri) throw new Error('Recording was not captured.');
-      await finalizeSession(sid, uri, AUDIO_MIME, seconds);
+      // Capture + enqueue the final segment, then wait for all uploads.
+      await rotateRef.current(true);
+      if (!sid) throw new Error('Recording was not captured.');
+      await uploaderRef.current?.flush();
+      const up = uploaderRef.current;
+      if (!up || up.enqueued === 0) throw new Error('Recording was not captured.');
+      if (up.uploaded === 0) {
+        throw new Error(
+          up.lastError ? `Audio upload failed: ${up.lastError}` : 'Audio upload failed. Check your connection and try again.',
+        );
+      }
+      await finalizeSession(sid, seconds);
       router.replace({ pathname: '/note', params: { sessionId: sid } });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not process the recording.');
@@ -128,6 +185,12 @@ export default function TranscribeScreen() {
           {phase === 'processing' ? 'Transcribing and writing your note…' : 'Listening to your visit'}
         </Text>
         <Text style={styles.timer}>{fmt(seconds)}</Text>
+
+        {chunkCount > 0 && (
+          <Text style={styles.uploadStatus}>
+            {uploaded}/{chunkCount} clips uploaded
+          </Text>
+        )}
 
         <View style={styles.wave}>
           {bars.map((h, i) => (
@@ -203,6 +266,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listening: { fontSize: 13, fontWeight: '600', color: Colors.inkSoft, marginBottom: 8, textAlign: 'center' },
   timer: { fontSize: 52, fontWeight: '800', color: Colors.ink, letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  uploadStatus: { fontSize: 12, fontWeight: '600', color: Colors.inkSoft, marginTop: 6 },
   wave: { height: 96, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, marginTop: 32 },
   bar: { width: 5, borderRadius: 3, backgroundColor: Colors.primary },
   helper: { maxWidth: 280, textAlign: 'center', fontSize: 13, lineHeight: 19, color: Colors.inkSoft, marginTop: 32 },

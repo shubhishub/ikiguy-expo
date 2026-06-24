@@ -5,6 +5,7 @@
 // e.g. EXPO_PUBLIC_API_URL=http://192.168.1.20:4000
 
 import { FileSystemUploadType, uploadAsync } from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 
 export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -19,6 +20,12 @@ export type StructuredNote = {
   risks: string[];
   advice: string[];
   prescription: { name: string; dose: string }[];
+  // Expanded fields — optional so demo notes and older records stay valid.
+  summary?: string;
+  patientSummary?: string;
+  diagnoses?: string[];
+  testsOrdered?: string[];
+  followUp?: { date: string; instructions: string };
 };
 
 export type UserProfile = { firstName?: string; lastName?: string; phone?: string; age?: number };
@@ -92,29 +99,51 @@ export function createSession(ctx: VisitContext) {
   return postJson<{ sessionId: string }>('/api/sessions', ctx);
 }
 
-// Upload the full recording, transcribe + structure on the server. Uses
-// expo-file-system uploadAsync (multipart) - robust for local file URIs, unlike
-// RN's fetch+FormData which rejects the legacy { uri } file part.
-export async function finalizeSession(
+// Upload one audio segment recorded in the background. Uses expo-file-system
+// uploadAsync (multipart) — robust for local file URIs, unlike RN's
+// fetch+FormData which rejects the legacy { uri } file part.
+export async function uploadChunk(
   sessionId: string,
-  audioUri: string,
+  index: number,
+  fileUri: string,
   mimeType: string,
-  durationSec: number,
-): Promise<{ note: StructuredNote & { sessionId: string }; transcript: string; audioUrl: string | null }> {
-  const res = await uploadAsync(
-    `${API_BASE}/api/sessions/${sessionId}/finalize?durationSec=${Math.round(durationSec)}`,
-    audioUri,
-    {
-      httpMethod: 'POST',
-      uploadType: FileSystemUploadType.MULTIPART,
-      fieldName: 'audio',
-      mimeType,
-    },
-  );
+): Promise<{ index: number; storageId: string; ok: boolean }> {
+  const url = `${API_BASE}/api/sessions/${sessionId}/chunks?index=${index}`;
+
+  // expo-file-system's uploadAsync is native-only. On web the recording is a
+  // blob: URL, so fetch the blob and post it as multipart form-data instead.
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(fileUri)).blob();
+    const ext = (blob.type || mimeType).includes('webm') ? 'webm' : 'm4a';
+    const form = new FormData();
+    form.append('audio', blob, `chunk-${index}.${ext}`);
+    const res = await fetch(url, { method: 'POST', body: form });
+    if (!res.ok) {
+      const msg = ((await res.json().catch(() => ({}))) as { error?: string }).error;
+      throw new Error(msg ?? `Chunk ${index} failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  const res = await uploadAsync(url, fileUri, {
+    httpMethod: 'POST',
+    uploadType: FileSystemUploadType.MULTIPART,
+    fieldName: 'audio',
+    mimeType,
+  });
   if (res.status < 200 || res.status >= 300) {
-    throw new Error(`Finalize failed (${res.status})`);
+    throw new Error(errorFromBody(res.body) ?? `Chunk ${index} failed (${res.status})`);
   }
   return JSON.parse(res.body);
+}
+
+// Finish the session: the server combines the uploaded chunks, transcribes, and
+// structures the note. Chunks must already be uploaded via uploadChunk.
+export function finalizeSession(
+  sessionId: string,
+  durationSec: number,
+): Promise<{ note: StructuredNote & { sessionId: string }; transcript: string; audioUrl: string | null }> {
+  return postJson(`/api/sessions/${sessionId}/finalize`, { durationSec: Math.round(durationSec) });
 }
 
 export type NoteRecord = {

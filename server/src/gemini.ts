@@ -50,6 +50,11 @@ export type StructuredNote = {
   risks: string[];
   advice: string[];
   prescription: { name: string; dose: string }[];
+  summary: string;
+  patientSummary: string;
+  diagnoses: string[];
+  testsOrdered: string[];
+  followUp: { date: string; instructions: string };
 };
 
 // Transcribe an audio recording verbatim. Logs sizes + result so the pipeline
@@ -87,7 +92,7 @@ export async function transcribeAudio(base64: string, mimeType: string): Promise
   }
 }
 
-const NOTE_SCHEMA = {
+export const NOTE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     doctor: { type: Type.STRING, description: "Doctor's name, or 'Unknown' if not mentioned" },
@@ -107,10 +112,30 @@ const NOTE_SCHEMA = {
         required: ['name', 'dose'],
       },
     },
+    summary: { type: Type.STRING, description: '1-2 sentence clinical summary of the visit' },
+    patientSummary: {
+      type: Type.STRING,
+      description: 'Plain-language "what this means for you", reassuring and actionable',
+    },
+    diagnoses: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Named assessments/conditions' },
+    testsOrdered: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: 'Labs, imaging, or referrals ordered',
+    },
+    followUp: {
+      type: Type.OBJECT,
+      properties: {
+        date: { type: Type.STRING, description: 'When to follow up, or "" if none' },
+        instructions: { type: Type.STRING, description: 'Follow-up instructions, or "" if none' },
+      },
+      required: ['date', 'instructions'],
+    },
   },
   required: [
     'doctor', 'specialty', 'facility', 'date', 'status',
     'chiefComplaint', 'history', 'risks', 'advice', 'prescription',
+    'summary', 'patientSummary', 'diagnoses', 'testsOrdered', 'followUp',
   ],
 };
 
@@ -144,7 +169,11 @@ export async function structureNote(
               'You are a medical scribe. From the visit transcript below, produce a structured ' +
               'clinical note in plain language. If a field is not mentioned, infer conservatively. ' +
               `Use "${today}" if no date is mentioned. Set status to "flag" for anything urgent, ` +
-              '"caution" if follow-up is advised, otherwise "good".\n\n' +
+              '"caution" if follow-up is advised, otherwise "good". ' +
+              'Write "summary" as a 1-2 sentence clinical recap, and "patientSummary" as a warm, ' +
+              'plain-language explanation the patient can act on. List "diagnoses" (named conditions) ' +
+              'and "testsOrdered" (labs/imaging/referrals); use empty arrays if none. For "followUp", ' +
+              'give a date and instructions, or empty strings if none.\n\n' +
               `KNOWN VISIT CONTEXT:\n${ctxLine}\n\nTRANSCRIPT:\n${transcript}`,
           },
         ],
@@ -154,8 +183,12 @@ export async function structureNote(
   }), 'structureNote');
 
   const note = JSON.parse(res.text ?? '{}') as StructuredNote;
+  return applyContext(note, context);
+}
 
-  // Enforce known context over the model's guesses.
+// Enforce known visit context over the model's guesses, so the note header is
+// never "Unknown" when we already chose the doctor/specialty/facility up front.
+export function applyContext(note: StructuredNote, context: VisitContext = {}): StructuredNote {
   if (context.doctor) note.doctor = context.doctor;
   if (context.specialty) note.specialty = context.specialty;
   if (context.facility) note.facility = context.facility;
@@ -171,7 +204,7 @@ export type ExtractedMarker = {
 };
 
 // Coerce "5.6", "1,200", "12.3 %" → number.
-function toNumber(v: unknown): number {
+export function toNumber(v: unknown): number {
   if (typeof v === 'number') return v;
   if (typeof v === 'string') {
     const n = parseFloat(v.replace(/,/g, '').replace(/[^0-9.\-]/g, ''));
@@ -181,7 +214,7 @@ function toNumber(v: unknown): number {
 }
 
 // Map whatever the model says into our 3 buckets.
-function normStatus(s: unknown): 'good' | 'caution' | 'flag' {
+export function normStatus(s: unknown): 'good' | 'caution' | 'flag' {
   const t = String(s ?? '').toLowerCase();
   if (/(good|normal|within|on[ -]?track|ok)/.test(t)) return 'good';
   if (/(flag|high|low|out|abnormal|critical|attention|elevated|deficien)/.test(t)) return 'flag';
@@ -190,7 +223,7 @@ function normStatus(s: unknown): 'good' | 'caution' | 'flag' {
   return 'caution';
 }
 
-function stripFences(s: string): string {
+export function stripFences(s: string): string {
   return s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
 }
 

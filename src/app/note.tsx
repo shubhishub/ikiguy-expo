@@ -25,6 +25,12 @@ const demoNote: NoteData = {
   risks: generatedNote.risks,
   advice: generatedNote.postOpAdvice,
   prescription: generatedNote.prescription,
+  summary: 'Routine post-op follow-up; healing well with minor activity limits.',
+  patientSummary:
+    "You're recovering as expected. Keep the area clean, avoid heavy lifting for two weeks, and call if you notice increasing pain or fever.",
+  diagnoses: ['Post-operative recovery — on track'],
+  testsOrdered: ['CBC in 2 weeks'],
+  followUp: { date: 'In 2 weeks', instructions: 'Return for a suture check and to review labs.' },
 };
 
 export default function NoteScreen() {
@@ -102,7 +108,15 @@ export default function NoteScreen() {
               <StatusChip status={note.status} label={statusLabel[note.status]} />
             </View>
             <Text style={styles.date}>{note.date}</Text>
+            {!!note.summary && <Text style={[styles.body, { marginTop: 12 }]}>{note.summary}</Text>}
           </View>
+
+          {!!note.patientSummary && (
+            <View style={[styles.card, Shadow, styles.callout]}>
+              <Text style={styles.calloutTitle}>What this means for you</Text>
+              <Text style={styles.calloutBody}>{note.patientSummary}</Text>
+            </View>
+          )}
 
           <Section title="Chief complaint">
             <Text style={styles.body}>{note.chiefComplaint}</Text>
@@ -111,6 +125,14 @@ export default function NoteScreen() {
           <Section title="History">
             <Text style={styles.body}>{note.history}</Text>
           </Section>
+
+          {!!note.diagnoses?.length && (
+            <Section title="Diagnoses">
+              {note.diagnoses.map((d) => (
+                <Bullet key={d} text={d} tone="info" />
+              ))}
+            </Section>
+          )}
 
           {note.risks.length > 0 && (
             <Section title="Risks flagged">
@@ -143,6 +165,21 @@ export default function NoteScreen() {
               ))}
             </Section>
           )}
+
+          {!!note.testsOrdered?.length && (
+            <Section title="Tests ordered">
+              {note.testsOrdered.map((t) => (
+                <Bullet key={t} text={t} tone="info" />
+              ))}
+            </Section>
+          )}
+
+          {!!note.followUp && (!!note.followUp.date || !!note.followUp.instructions) && (
+            <Section title="Follow-up">
+              {!!note.followUp.date && <Text style={styles.followUpDate}>{note.followUp.date}</Text>}
+              {!!note.followUp.instructions && <Text style={styles.body}>{note.followUp.instructions}</Text>}
+            </Section>
+          )}
         </ScrollView>
       )}
     </View>
@@ -158,11 +195,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Bullet({ text, tone }: { text: string; tone: 'good' | 'flag' }) {
-  const color = tone === 'good' ? Colors.statusGood : Colors.statusFlag;
+function Bullet({ text, tone }: { text: string; tone: 'good' | 'flag' | 'info' }) {
+  const color =
+    tone === 'good' ? Colors.statusGood : tone === 'flag' ? Colors.statusFlag : Colors.primary;
+  const bg = tone === 'good' ? '#E8F7EF' : tone === 'flag' ? '#FDEAF1' : Colors.primaryTint;
   return (
     <View style={styles.bullet}>
-      <View style={[styles.bulletIcon, { backgroundColor: tone === 'good' ? '#E8F7EF' : '#FDEAF1' }]}>
+      <View style={[styles.bulletIcon, { backgroundColor: bg }]}>
         <CheckIcon size={12} color={color} strokeWidth={2.4} />
       </View>
       <Text style={styles.bulletText}>{text}</Text>
@@ -188,6 +227,10 @@ const styles = StyleSheet.create({
   doctor: { fontSize: 16, fontWeight: '700', color: Colors.ink },
   meta: { fontSize: 12.5, color: Colors.inkSoft, marginTop: 2 },
   date: { fontSize: 12, fontWeight: '600', color: Colors.inkSoft, marginTop: 10 },
+  callout: { marginTop: 16, backgroundColor: Colors.primaryTint, borderColor: 'transparent' },
+  calloutTitle: { fontSize: 12, fontWeight: '700', color: Colors.primary, letterSpacing: 0.4, marginBottom: 6 },
+  calloutBody: { fontSize: 13.5, lineHeight: 21, color: Colors.ink },
+  followUpDate: { fontSize: 13.5, fontWeight: '700', color: Colors.ink, marginBottom: 6 },
   section: { marginTop: 20 },
   sectionTitle: { fontSize: 12, fontWeight: '700', color: Colors.inkSoft, letterSpacing: 0.6, marginBottom: 8, marginLeft: 2 },
   body: { fontSize: 13.5, lineHeight: 21, color: '#5B6072' },

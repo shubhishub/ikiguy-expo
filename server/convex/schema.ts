@@ -34,10 +34,16 @@ export default defineSchema({
     audioId: v.optional(v.id('_storage')),
   }).index('by_user', ['userId']),
 
+  // Audio segments uploaded in the background while recording. Each chunk is a
+  // separate object in Convex storage; they're combined on finalize and then
+  // deleted. `text` is optional (we transcribe the combined audio, not chunks).
   chunks: defineTable({
     sessionId: v.id('sessions'),
     index: v.number(),
-    text: v.string(),
+    storageId: v.id('_storage'),
+    mimeType: v.string(),
+    durationSec: v.optional(v.number()),
+    text: v.optional(v.string()),
     createdAt: v.number(),
   }).index('by_session', ['sessionId']),
 
@@ -72,6 +78,12 @@ export default defineSchema({
     risks: v.array(v.string()),
     advice: v.array(v.string()),
     prescription: v.array(v.object({ name: v.string(), dose: v.string() })),
+    // Expanded note fields — optional so partial AI output never breaks writes.
+    summary: v.optional(v.string()),
+    patientSummary: v.optional(v.string()),
+    diagnoses: v.optional(v.array(v.string())),
+    testsOrdered: v.optional(v.array(v.string())),
+    followUp: v.optional(v.object({ date: v.string(), instructions: v.string() })),
     createdAt: v.number(),
   })
     .index('by_session', ['sessionId'])
