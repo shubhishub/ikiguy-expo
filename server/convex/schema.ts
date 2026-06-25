@@ -6,13 +6,19 @@ import { v } from 'convex/values';
 export default defineSchema({
   users: defineTable({
     email: v.string(),
+    // Google account subject id ("sub") — the stable identity from Google Sign-In.
+    googleId: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     phone: v.optional(v.string()),
     age: v.optional(v.number()),
     name: v.optional(v.string()),
+    // Profile photo URL from the Google account.
+    avatarUrl: v.optional(v.string()),
     createdAt: v.number(),
-  }).index('by_email', ['email']),
+  })
+    .index('by_email', ['email'])
+    .index('by_google_id', ['googleId']),
 
   sessions: defineTable({
     userId: v.id('users'),

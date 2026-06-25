@@ -22,17 +22,19 @@ export default function RootLayout() {
 }
 
 function RootNavigator() {
-  const { userId, ready } = useAuth();
+  const { userId, needsProfile, ready } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
-  // Redirect to onboarding until the user has an identity.
+  // Keep the user on onboarding until they have an identity AND a complete
+  // profile (Google sign-in, then the phone/age details step).
   useEffect(() => {
     if (!ready) return;
     const onboarding = segments[0] === 'onboarding';
-    if (!userId && !onboarding) router.replace('/onboarding');
-    else if (userId && onboarding) router.replace('/');
-  }, [ready, userId, segments, router]);
+    const authed = !!userId && !needsProfile;
+    if (!authed && !onboarding) router.replace('/onboarding');
+    else if (authed && onboarding) router.replace('/');
+  }, [ready, userId, needsProfile, segments, router]);
 
   if (!ready) {
     return (

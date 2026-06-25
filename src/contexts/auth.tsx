@@ -2,7 +2,12 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
-import { login as apiLogin, type UserProfile, type UserRecord } from '@/lib/api';
+import {
+  loginWithGoogle as apiLoginWithGoogle,
+  updateProfile as apiUpdateProfile,
+  type UserProfile,
+  type UserRecord,
+} from '@/lib/api';
 
 const USER_KEY = 'ikiguy.user';
 
@@ -32,12 +37,31 @@ type AuthValue = {
   fullName: string;
   /** Up-to-two-letter avatar initials. */
   initials: string;
+  /** Google profile photo URL, if any. */
+  avatarUrl: string | null;
   ready: boolean;
-  signIn: (email: string, profile?: UserProfile) => Promise<void>;
+  /** True once signed in but still missing the details Google can't supply. */
+  needsProfile: boolean;
+  /** Verify a Google ID token with the server and persist the user. */
+  signInWithGoogle: (idToken: string) => Promise<void>;
+  /** Save the extra onboarding details (phone, age, name edits). */
+  completeProfile: (profile: UserProfile) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
+
+function persist(record: UserRecord): UserRecord {
+  return {
+    userId: record.userId,
+    email: record.email,
+    firstName: record.firstName,
+    lastName: record.lastName,
+    phone: record.phone,
+    age: record.age,
+    avatarUrl: record.avatarUrl,
+  };
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserRecord | null>(null);
@@ -68,6 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         : emailHandle.slice(0, 2)
       ).toUpperCase() || 'IK';
 
+    // After Google sign-in we still need phone + age, which Google doesn't give.
+    const needsProfile = !!user && (!user.phone || user.age == null);
+
     return {
       user,
       userId: user?.userId ?? null,
@@ -75,17 +102,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       firstName: first || emailHandle,
       fullName,
       initials,
+      avatarUrl: user?.avatarUrl ?? null,
       ready,
-      async signIn(email: string, profile?: UserProfile) {
-        const record = await apiLogin(email, profile);
-        const next: UserRecord = {
-          userId: record.userId,
-          email: record.email,
-          firstName: record.firstName,
-          lastName: record.lastName,
-          phone: record.phone,
-          age: record.age,
-        };
+      needsProfile,
+      async signInWithGoogle(idToken: string) {
+        const record = await apiLoginWithGoogle(idToken);
+        const next = persist(record);
+        await storage.set(USER_KEY, JSON.stringify(next));
+        setUser(next);
+      },
+      async completeProfile(profile: UserProfile) {
+        if (!user) throw new Error('Not signed in');
+        const { user: record } = await apiUpdateProfile(user.userId, profile);
+        const next = persist(record);
         await storage.set(USER_KEY, JSON.stringify(next));
         setUser(next);
       },

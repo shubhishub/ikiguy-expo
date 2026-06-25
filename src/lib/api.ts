@@ -37,6 +37,7 @@ export type UserRecord = {
   lastName: string | null;
   phone: string | null;
   age: number | null;
+  avatarUrl: string | null;
 };
 
 export type Place = {
@@ -76,8 +77,24 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json();
 }
 
-export function login(email: string, profile?: UserProfile) {
-  return postJson<UserRecord & { created: boolean }>('/api/auth/login', { email, ...profile });
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Request failed (${res.status})`);
+  return res.json();
+}
+
+// Exchange a verified Google ID token for the app's user record.
+export function loginWithGoogle(idToken: string) {
+  return postJson<UserRecord & { created: boolean }>('/api/auth/google', { idToken });
+}
+
+// Save the extra details Google doesn't provide (phone, age) or name edits.
+export function updateProfile(userId: string, profile: UserProfile) {
+  return patchJson<{ user: UserRecord }>(`/api/users/${userId}/profile`, profile);
 }
 
 export function getUser(userId: string) {

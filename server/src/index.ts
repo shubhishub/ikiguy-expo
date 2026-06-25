@@ -6,6 +6,7 @@ import * as realAudio from './audio.ts';
 import { api as realApi, requireConvex as realRequireConvex } from './convex.ts';
 import { biomarkers, familyMembers, profile, reminders, visits } from './data.ts';
 import * as realGemini from './gemini.ts';
+import { googleConfigured, verifyGoogleIdToken as realVerifyGoogleIdToken } from './google.ts';
 import { placesConfigured, searchPlaces } from './places.ts';
 
 type Convex = ReturnType<typeof realRequireConvex>;
@@ -17,6 +18,7 @@ export type BuildDeps = {
   requireConvex?: () => Convex;
   gemini?: Pick<typeof realGemini, 'transcribeAudio' | 'structureNote' | 'extractLabReport'>;
   audio?: Pick<typeof realAudio, 'toMp3' | 'combineToMp3'>;
+  google?: { verifyGoogleIdToken: typeof realVerifyGoogleIdToken };
 };
 
 // Map an audio mime type to a container extension so ffmpeg can detect the
@@ -38,6 +40,7 @@ export async function buildApp(deps: BuildDeps = {}) {
   const requireConvex = deps.requireConvex ?? realRequireConvex;
   const { transcribeAudio, structureNote, extractLabReport } = deps.gemini ?? realGemini;
   const { toMp3, combineToMp3 } = deps.audio ?? realAudio;
+  const { verifyGoogleIdToken } = deps.google ?? { verifyGoogleIdToken: realVerifyGoogleIdToken };
 
   // Upload a buffer to Convex storage and return its storageId (or null on
   // failure). Convex hands back a short-lived URL we POST the bytes to.
@@ -68,24 +71,33 @@ export async function buildApp(deps: BuildDeps = {}) {
     }
   });
 
-  app.get('/health', async () => ({ status: 'ok', places: placesConfigured() }));
+  app.get('/health', async () => ({ status: 'ok', places: placesConfigured(), google: googleConfigured() }));
 
   // ---------------------------------------------------------------------------
-  // Auth
+  // Auth — Google Sign-In. The app sends the Google ID token; we verify it
+  // server-side and upsert the proven identity into Convex.
   // ---------------------------------------------------------------------------
-  app.post('/api/auth/login', async (req) => {
-    const { email, firstName, lastName, phone, age } = (req.body ?? {}) as {
-      email?: string; firstName?: string; lastName?: string; phone?: string; age?: number;
-    };
-    if (!email || !email.includes('@')) {
-      throw Object.assign(new Error('A valid email is required'), { statusCode: 400 });
-    }
-    return requireConvex().mutation(api.users.upsert, { email, firstName, lastName, phone, age });
+  app.post('/api/auth/google', async (req) => {
+    const { idToken } = (req.body ?? {}) as { idToken?: string };
+    if (!idToken) throw Object.assign(new Error('idToken is required'), { statusCode: 400 });
+    const profileData = await verifyGoogleIdToken(idToken);
+    return requireConvex().mutation(api.users.upsertGoogle, profileData);
   });
 
   app.get('/api/users/:id', async (req) => {
     const { id: userId } = req.params as { id: string };
     return { user: await requireConvex().query(api.users.get, { userId }) };
+  });
+
+  // Save profile details Google doesn't provide (phone, age) or name edits.
+  app.patch('/api/users/:id/profile', async (req) => {
+    const { id: userId } = req.params as { id: string };
+    const { firstName, lastName, phone, age } = (req.body ?? {}) as {
+      firstName?: string; lastName?: string; phone?: string; age?: number;
+    };
+    const fields = { firstName, lastName, phone, age };
+    const args = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+    return { user: await requireConvex().mutation(api.users.updateProfile, { userId, ...args }) };
   });
 
   // Permanently delete the user and all their data.

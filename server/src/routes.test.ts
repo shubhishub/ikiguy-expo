@@ -30,6 +30,8 @@ const fakeClient: any = {
       case 'chunks.add': return 'chunk_1';
       case 'chunks.deleteBySession': return 1;
       case 'notes.save': return 'note_1';
+      case 'users.upsertGoogle':
+        return { userId: 'user_1', email: (args as any).email, created: true };
       default: return null;
     }
   },
@@ -77,7 +79,16 @@ beforeAll(() => {
   }) as typeof fetch;
 });
 
-const app = await buildApp({ api, requireConvex: () => fakeClient, gemini, audio });
+// Fake Google verifier: accepts "good-token", rejects everything else — no real
+// network or signature check, so the route logic is exercised in isolation.
+const google = {
+  verifyGoogleIdToken: async (idToken: string) => {
+    if (idToken !== 'good-token') throw Object.assign(new Error('Invalid Google token'), { statusCode: 401 });
+    return { googleId: 'g_sub_1', email: 'jdoe@gmail.com', name: 'J Doe', firstName: 'J', lastName: 'Doe' };
+  },
+} as any;
+
+const app = await buildApp({ api, requireConvex: () => fakeClient, gemini, audio, google });
 
 function multipart(field: string, filename: string, contentType: string, bytes: Buffer) {
   const boundary = '----ikiguytest';
@@ -94,6 +105,36 @@ describe('routes', () => {
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe('ok');
+  });
+
+  it('POST /api/auth/google verifies the token and upserts the user', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/google',
+      payload: JSON.stringify({ idToken: 'good-token' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ userId: 'user_1', email: 'jdoe@gmail.com', created: true });
+    const upsert = calls.find((c) => c.ref === 'users.upsertGoogle');
+    expect(upsert?.args).toMatchObject({ googleId: 'g_sub_1', email: 'jdoe@gmail.com', firstName: 'J' });
+  });
+
+  it('POST /api/auth/google rejects an invalid token', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/google',
+      payload: JSON.stringify({ idToken: 'nope' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('POST /api/auth/google requires an idToken', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/google',
+      payload: JSON.stringify({}),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it('POST /api/sessions creates a session', async () => {

@@ -2,40 +2,68 @@ import { v } from 'convex/values';
 
 import { mutation, query } from './_generated/server';
 
-// Email-only identity: find a user by email or create one, storing any profile
-// details collected during onboarding.
-export const upsert = mutation({
+// Google Sign-In: upsert by verified Google identity. Matched first by the
+// stable Google subject id, then by email (so an account created under the old
+// email-only flow gets linked to its Google identity on first Google sign-in).
+export const upsertGoogle = mutation({
   args: {
+    googleId: v.string(),
     email: v.string(),
+    name: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const email = args.email.trim().toLowerCase();
+
+    // Google is the source of truth for these fields, so always (re)apply them.
+    const fields: Record<string, unknown> = { googleId: args.googleId, email };
+    if (args.name !== undefined) fields.name = args.name;
+    if (args.firstName !== undefined) fields.firstName = args.firstName;
+    if (args.lastName !== undefined) fields.lastName = args.lastName;
+    if (args.avatarUrl !== undefined) fields.avatarUrl = args.avatarUrl;
+
+    const existing =
+      (await ctx.db
+        .query('users')
+        .withIndex('by_google_id', (q) => q.eq('googleId', args.googleId))
+        .unique()) ??
+      (await ctx.db
+        .query('users')
+        .withIndex('by_email', (q) => q.eq('email', email))
+        .unique());
+
+    if (existing) {
+      await ctx.db.patch(existing._id, fields);
+      const doc = await ctx.db.get(existing._id);
+      return { userId: existing._id, ...view(doc), created: false };
+    }
+
+    const userId = await ctx.db.insert('users', { ...fields, createdAt: Date.now() } as any);
+    const doc = await ctx.db.get(userId);
+    return { userId, ...view(doc), created: true };
+  },
+});
+
+// Save the extra profile details Google doesn't provide (phone, age) and any
+// edits to the name. Keyed by userId; only patches fields that were provided.
+export const updateProfile = mutation({
+  args: {
+    userId: v.id('users'),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     phone: v.optional(v.string()),
     age: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const email = args.email.trim().toLowerCase();
-
-    // Only patch fields that were actually provided.
+  handler: async (ctx, { userId, ...rest }) => {
     const fields: Record<string, unknown> = {};
-    if (args.firstName !== undefined) fields.firstName = args.firstName;
-    if (args.lastName !== undefined) fields.lastName = args.lastName;
-    if (args.phone !== undefined) fields.phone = args.phone;
-    if (args.age !== undefined) fields.age = args.age;
-
-    const existing = await ctx.db
-      .query('users')
-      .withIndex('by_email', (q) => q.eq('email', email))
-      .unique();
-
-    if (existing) {
-      if (Object.keys(fields).length) await ctx.db.patch(existing._id, fields);
-      const doc = await ctx.db.get(existing._id);
-      return { userId: existing._id, ...view(doc), created: false };
+    for (const [key, value] of Object.entries(rest)) {
+      if (value !== undefined) fields[key] = value;
     }
-
-    const userId = await ctx.db.insert('users', { email, ...fields, createdAt: Date.now() });
+    if (Object.keys(fields).length) await ctx.db.patch(userId, fields);
     const doc = await ctx.db.get(userId);
-    return { userId, ...view(doc), created: true };
+    return doc ? { userId, ...view(doc) } : null;
   },
 });
 
@@ -97,5 +125,6 @@ function view(doc: Record<string, unknown> | null) {
     lastName: doc?.lastName ?? null,
     phone: doc?.phone ?? null,
     age: doc?.age ?? null,
+    avatarUrl: doc?.avatarUrl ?? null,
   };
 }

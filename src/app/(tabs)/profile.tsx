@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -20,7 +21,7 @@ function orUnknown(v: string | undefined | null, fallback: string) {
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { fullName, initials, email, userId, signOut } = useAuth();
+  const { fullName, initials, email, userId, avatarUrl, signOut } = useAuth();
 
   const [notes, setNotes] = useState<NoteRecord[]>([]);
   const [reportCount, setReportCount] = useState(0);
@@ -90,7 +91,11 @@ export default function ProfileScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
         <View style={styles.headRow}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initials}</Text>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" transition={150} />
+            ) : (
+              <Text style={styles.avatarText}>{initials}</Text>
+            )}
           </View>
           <View style={styles.stats}>
             <Stat value={visitCount} label="Visits" />
@@ -198,6 +203,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(245,166,35,0.3)',
   },
   avatarText: { fontSize: 26, fontWeight: '800', color: Colors.primary },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 39 },
   stats: { flex: 1, flexDirection: 'row', justifyContent: 'space-around' },
   stat: { alignItems: 'center' },
   statValue: { fontSize: 20, fontWeight: '800', color: Colors.ink },
